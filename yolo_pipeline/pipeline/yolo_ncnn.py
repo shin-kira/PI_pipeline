@@ -4,6 +4,7 @@ import requests
 import time
 import cv2
 import serial
+import threading
 
 
 model=YOLO("../model_weights_and_props/best.pt")
@@ -58,10 +59,11 @@ def cam_read():
 
 
 def write_UART():
-    try:
-        payload=ser.write(example_msg.encode())
-    except:
-        print("error sending mesage")
+    while True:
+        try:
+            payload=ser.write(example_msg.encode())
+        except:
+            print("error sending mesage")
 
 
 def read_UART():
@@ -73,4 +75,9 @@ def read_UART():
             if decoded_payload:
                 print(decoded_payload)
         time.sleep(0.05)
-    
+
+
+def main():
+    threading.Thread(target=cam_read,daemon=True).start()
+    threading.Thread(target=read_UART,daemon=True).start()
+    threading.Thread(target=write_UART,daemon=True).start()
