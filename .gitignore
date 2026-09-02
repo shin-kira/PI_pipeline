@@ -1,1 +1,6 @@
-
+.PIvenv/
+__pycache__/
+*.pyc
+serviceKey.json
+*.pt
+*.ncnn_model/
