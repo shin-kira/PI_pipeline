@@ -55,20 +55,20 @@ def upload_worker():
 def sendToEsp():
     while running:
         data = read_data(boat_name, boat_id)
-        print(f"[Firebase] Received: {data}")
+        print(f"[Firebase] Received: {data}", flush=True)
         if data:
             esp_message = str(data)
             sendUART(esp_message)
-        time.sleep(0.5)
+        time.sleep(0.01)
 
 
 def reciveFromEsp():
     while running:
         payload = receiveUART()
         if payload:
-            print(f"data received from esp: {payload}")
+            print(f"data received from esp: {payload}", flush=True)
             write_data(boat_name, boat_id, {"status": payload})
-        time.sleep(0.1)
+        time.sleep(0.01)
 
 
 
