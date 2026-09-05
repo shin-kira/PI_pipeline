@@ -18,6 +18,7 @@ except Exception as e:
 
 example_msg = "{'drive':1,'relay':0,'switch':0,'motor_a':10,'motor_b':10}"
 SERVER_URL = 'https://your-flask-website.com/upload'
+ENABLE_UPLOAD = False
 
 boat_name = "scuba"
 boat_id = 9999
@@ -70,7 +71,8 @@ def reciveFromEsp():
 
 
 
-threading.Thread(target=upload_worker, daemon=True).start()
+if ENABLE_UPLOAD:
+    threading.Thread(target=upload_worker, daemon=True).start()
 
 threading.Thread(target=sendToEsp, daemon=True).start()
 threading.Thread(target=reciveFromEsp, daemon=True).start()
