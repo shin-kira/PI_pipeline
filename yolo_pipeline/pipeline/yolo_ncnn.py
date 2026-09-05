@@ -54,10 +54,10 @@ def upload_worker():
 def sendToEsp():
     while running:
         data = read_data(boat_name, boat_id)
+        print(f"[Firebase] Received: {data}")
         if data:
             esp_message = str(data)
             sendUART(esp_message)
-            print(f"data from firebase: {data}")
         time.sleep(0.5)
 
 
