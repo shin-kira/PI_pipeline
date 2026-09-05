@@ -19,7 +19,7 @@ def read_data(boat_name, boat_id):
         return None
     try:
         doc_ref = db.collection("boat").document(f"{boat_name}:{boat_id}")
-        payload = doc_ref.get()
+        payload = doc_ref.get(timeout=10)
         if payload.exists:
             return payload.to_dict()
         return None
