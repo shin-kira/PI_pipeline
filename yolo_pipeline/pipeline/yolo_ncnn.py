@@ -19,6 +19,7 @@ except Exception as e:
 example_msg = "{'drive':1,'relay':0,'switch':0,'motor_a':10,'motor_b':10}"
 SERVER_URL = 'https://your-flask-website.com/upload'
 ENABLE_UPLOAD = False
+ENABLE_DISPLAY = True
 
 boat_name = "scuba"
 boat_id = 9999
@@ -32,7 +33,7 @@ if not cap.isOpened():
     print("Load capture failed")
     sys.exit(1)
 
-print("Start stream. Press Ctrl+C to quit.")
+print("Start stream. Press Ctrl+C or 'q' to quit.")
 
 upload_lock = threading.Lock()
 latest_jpeg = None
@@ -88,6 +89,12 @@ try:
         results = model(frame, imgsz=320, verbose=False)
         annotated_frame = results[0].plot()
 
+        if ENABLE_DISPLAY:
+            cv2.imshow("YOLOv8 Live Feed", annotated_frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                running = False
+                break
+
         ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ret:
             with upload_lock:
@@ -98,3 +105,5 @@ except KeyboardInterrupt:
 finally:
     running = False
     cap.release()
+    if ENABLE_DISPLAY:
+        cv2.destroyAllWindows()
