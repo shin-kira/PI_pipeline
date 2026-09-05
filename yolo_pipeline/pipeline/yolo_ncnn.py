@@ -62,7 +62,7 @@ def sendToEsp():
         if data:
             esp_message = str(data)
             sendUART(esp_message)
-        time.sleep(0.01)
+        time.sleep(0.5)
 
 
 def reciveFromEsp():
