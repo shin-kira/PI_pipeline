@@ -17,11 +17,15 @@ def read_data(boat_name, boat_id):
     if db is None:
         print("Firebase not initialized", flush=True)
         return None
-    doc_ref = db.collection("boat").document(f"{boat_name}:{boat_id}")
-    payload = doc_ref.get()
-    if payload.exists:
-        return payload.to_dict()
-    return None
+    try:
+        doc_ref = db.collection("boat").document(f"{boat_name}:{boat_id}")
+        payload = doc_ref.get()
+        if payload.exists:
+            return payload.to_dict()
+        return None
+    except Exception as e:
+        print(f"Firebase read error: {e}", flush=True)
+        return None
 
 
 def write_data(boat_name, boat_id, payload):

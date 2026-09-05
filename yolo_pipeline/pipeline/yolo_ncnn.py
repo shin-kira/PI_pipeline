@@ -74,9 +74,11 @@ def reciveFromEsp():
 
 if ENABLE_UPLOAD:
     threading.Thread(target=upload_worker, daemon=True).start()
+    print("Upload thread started", flush=True)
 
 threading.Thread(target=sendToEsp, daemon=True).start()
 threading.Thread(target=reciveFromEsp, daemon=True).start()
+print("UART threads started", flush=True)
 
 try:
     while running:
