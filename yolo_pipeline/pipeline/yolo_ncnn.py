@@ -5,12 +5,11 @@ import cv2
 import serial
 import threading
 import sys
-from .UARTManager import sendUART, receiveUART, send_demo
-from .firebaseManager import read_data, write_data
+from UARTManager import sendUART, receiveUART
+from firebaseManager import read_data, write_data
 
 running = True
 
-# Load your exported NCNN model directory for Pi optimization
 try:
     model = YOLO("../model_weights_and_props/best_ncnn_model")
 except Exception as e:
@@ -22,6 +21,7 @@ SERVER_URL = 'https://your-flask-website.com/upload'
 
 boat_name = "scuba"
 boat_id = 9999
+
 cam_index = 0
 cap = cv2.VideoCapture(cam_index)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -31,7 +31,49 @@ if not cap.isOpened():
     print("Load capture failed")
     sys.exit(1)
 
-print("Start stream. Press 'q' in the video window to quit.")
+print("Start stream. Press Ctrl+C to quit.")
+
+upload_lock = threading.Lock()
+latest_jpeg = None
+
+def upload_worker():
+    global latest_jpeg
+    while running:
+        with upload_lock:
+            buf = latest_jpeg
+        if buf is not None:
+            try:
+                requests.post(SERVER_URL, data=buf.tobytes(), timeout=2)
+            except requests.exceptions.RequestException as e:
+                print(f"Upload failed: {e}")
+            latest_jpeg = None
+        time.sleep(0.01)
+
+
+def sendToEsp():
+    while running:
+        data = read_data(boat_name, boat_id)
+        if data:
+            esp_message = str(data)
+            sendUART(esp_message)
+            print(f"data from firebase: {data}")
+        time.sleep(0.5)
+
+
+def reciveFromEsp():
+    while running:
+        payload = receiveUART()
+        if payload:
+            print(f"data received from esp: {payload}")
+            write_data(boat_name, boat_id, {"status": payload})
+        time.sleep(0.1)
+
+
+
+threading.Thread(target=upload_worker, daemon=True).start()
+
+threading.Thread(target=sendToEsp, daemon=True).start()
+threading.Thread(target=reciveFromEsp, daemon=True).start()
 
 try:
     while running:
@@ -44,31 +86,13 @@ try:
         results = model(frame, imgsz=320, verbose=False)
         annotated_frame = results[0].plot()
 
-        cv2.imshow("YOLOv8 External Camera Live Feed", annotated_frame)
-
         ret, buffer = cv2.imencode('.jpg', annotated_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if ret:
-            try:
-                requests.post(SERVER_URL, data=buffer.tobytes(), timeout=2)
-            except requests.exceptions.RequestException as e:
-                print(f"Upload failed: {e}")
+            with upload_lock:
+                latest_jpeg = buffer
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            running = False
-            break
-
-        sendUART(example_msg)
-
-        receiveUART()
-
-        payload=read_data(boat_name, boat_id)
-        print(payload)
-
-        write_data(boat_name, boat_id, {"status": "demo"})
-
-        time.sleep(0.03)
 except KeyboardInterrupt:
     print("Interrupted by user")
 finally:
+    running = False
     cap.release()
-    cv2.destroyAllWindows()
