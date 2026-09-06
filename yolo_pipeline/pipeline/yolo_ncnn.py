@@ -6,6 +6,7 @@ import serial
 import threading
 import sys
 import json
+import re
 from UARTManager import sendUART, receiveUART
 from firebaseManager import read_data, write_data
 
@@ -63,45 +64,33 @@ def sendToEsp():
         time.sleep(0.5)
 
 
+_esp_buffer = {"weight": None, "long": None, "lat": None}
+
+
 def reciveFromEsp():
+    global _esp_buffer
     while running:
         payload = receiveUART()
         if payload:
             print(f"data received from esp: {payload}", flush=True)
-            telemetry = _parse_esp_payload(payload)
-            if telemetry:
+            m = re.match(r'"(\w+)"\s*:\s*([^,\s]+)', payload.strip())
+            if m:
+                key = m.group(1).strip()
+                try:
+                    val = float(m.group(2))
+                except ValueError:
+                    continue
+                if key in ("wheight", "weight"):
+                    _esp_buffer["weight"] = val
+                elif key in ("long", "lon"):
+                    _esp_buffer["long"] = val
+                elif key in ("lat", "latitude"):
+                    _esp_buffer["lat"] = val
+            if all(v is not None for v in _esp_buffer.values()):
+                telemetry = dict(_esp_buffer)
+                _esp_buffer = {"weight": None, "long": None, "lat": None}
                 write_data(boat_name, boat_id, telemetry)
         time.sleep(0.1)
-
-
-def _parse_esp_payload(payload):
-    p = payload.strip()
-    if not p:
-        return None
-    try:
-        data = json.loads(p)
-        if isinstance(data, dict):
-            return {
-                "weight": float(data.get("weight", 0)),
-                "long": float(data.get("long", data.get("lon", 0))),
-                "lat": float(data.get("lat", 0)),
-            }
-    except (json.JSONDecodeError, ValueError, TypeError):
-        pass
-    tokens = [t for t in p.replace(";", ",").split(",") if t.strip()]
-    nums = []
-    for tok in tokens:
-        try:
-            nums.append(float(tok))
-        except ValueError:
-            pass
-    if len(nums) >= 2:
-        return {
-            "weight": nums[0] if len(nums) > 2 else 0.0,
-            "long": nums[-2],
-            "lat": nums[-1],
-        }
-    return None
 
 
 
