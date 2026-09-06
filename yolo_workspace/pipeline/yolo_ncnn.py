@@ -68,17 +68,40 @@ def reciveFromEsp():
         payload = receiveUART()
         if payload:
             print(f"data received from esp: {payload}", flush=True)
-            try:
-                data = json.loads(payload)
-                telemetry = {
-                    "weight": float(data.get("weight", 0)),
-                    "long": float(data.get("long", data.get("lon", 0))),
-                    "lat": float(data.get("lat", 0)),
-                }
+            telemetry = _parse_esp_payload(payload)
+            if telemetry:
                 write_data(boat_name, boat_id, telemetry)
-            except (json.JSONDecodeError, ValueError, TypeError) as e:
-                print(f"Parse error: {e}", flush=True)
         time.sleep(0.1)
+
+
+def _parse_esp_payload(payload):
+    p = payload.strip()
+    if not p:
+        return None
+    try:
+        data = json.loads(p)
+        if isinstance(data, dict):
+            return {
+                "weight": float(data.get("weight", 0)),
+                "long": float(data.get("long", data.get("lon", 0))),
+                "lat": float(data.get("lat", 0)),
+            }
+    except (json.JSONDecodeError, ValueError, TypeError):
+        pass
+    tokens = [t for t in p.replace(";", ",").split(",") if t.strip()]
+    nums = []
+    for tok in tokens:
+        try:
+            nums.append(float(tok))
+        except ValueError:
+            pass
+    if len(nums) >= 2:
+        return {
+            "weight": nums[0] if len(nums) > 2 else 0.0,
+            "long": nums[-2],
+            "lat": nums[-1],
+        }
+    return None
 
 
 
