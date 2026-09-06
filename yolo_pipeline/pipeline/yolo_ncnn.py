@@ -53,11 +53,8 @@ def upload_worker():
 
 
 def sendToEsp():
-    print("sendToEsp thread starting...", flush=True)
     while running:
-        print("  [sendToEsp] calling read_data...", flush=True)
         data = read_data(boat_name, boat_id)
-        print(f"  [sendToEsp] read_data returned: {data}", flush=True)
         print(f"[Firebase] Received: {data}", flush=True)
         if data:
             esp_message = str(data)
@@ -71,7 +68,7 @@ def reciveFromEsp():
         if payload:
             print(f"data received from esp: {payload}", flush=True)
             write_data(boat_name, boat_id, {"status": payload})
-        time.sleep(0.01)
+        time.sleep(0.1)
 
 
 
