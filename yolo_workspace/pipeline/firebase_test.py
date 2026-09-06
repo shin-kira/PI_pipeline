@@ -21,7 +21,6 @@ try:
     cer = credentials.Certificate(cer_path)
     print("Certificate loaded successfully", flush=True)
     print("Service account:", cer.service_account_email, flush=True)
-    print("Token URI:", cer.token_uri, flush=True)
 except Exception as e:
     print(f"Certificate error: {type(e).__name__}: {e}", flush=True)
     sys.exit(1)
