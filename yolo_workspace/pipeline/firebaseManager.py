@@ -2,7 +2,7 @@ import os
 import firebase_admin
 from firebase_admin import firestore, credentials
 
-cer_path = os.path.join(os.path.dirname(__file__), "serviceKey.json")
+cer_path = os.environ.get("FIREBASE_SERVICE_KEY", os.path.join(os.path.dirname(__file__), "serviceKey.json"))
 
 db = None
 try:

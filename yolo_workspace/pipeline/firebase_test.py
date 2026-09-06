@@ -1,16 +1,20 @@
 import os
 import sys
-from datetime import datetime
 
 print("Python:", sys.version, flush=True)
 print("CWD:", os.getcwd(), flush=True)
 
-cer_path = os.path.join(os.path.dirname(__file__), "serviceKey.json")
+cer_path = os.environ.get(
+    "FIREBASE_SERVICE_KEY",
+    os.path.join(os.path.dirname(__file__), "serviceKey.json")
+)
+if not os.path.exists(cer_path):
+    cer_path = os.path.join(os.path.dirname(__file__), "servicaAccountKey.json")
 print("Key path:", cer_path, flush=True)
 print("Key exists:", os.path.exists(cer_path), flush=True)
 
 try:
-    from firebase_admin import credentials, initialize_app, firestore, exceptions
+    from firebase_admin import credentials, initialize_app, firestore
     import firebase_admin
     print("firebase_admin available", flush=True)
 except ImportError as e:
@@ -35,14 +39,6 @@ except Exception as e:
     sys.exit(1)
 
 try:
-    # Test getting an access token directly
-    print("Requesting OAuth token...", flush=True)
-    access_token = cer.get_access_token()
-    print(f"OAuth token obtained: {access_token.token[:20]}...", flush=True)
-except Exception as e:
-    print(f"OAuth token error: {type(e).__name__}: {e}", flush=True)
-
-try:
     db = firestore.client()
     doc_ref = db.collection("boat").document("scuba:9999")
     print("Calling Firestore get() with 10s timeout...", flush=True)
@@ -54,6 +50,3 @@ try:
         print("Document not found (doc ID: scuba:9999 doesn't exist in Firestore)", flush=True)
 except Exception as e:
     print(f"Firestore error: {type(e).__name__}: {e}", flush=True)
-
-print("Time:", end=" ", flush=True)
-os.system("date")
