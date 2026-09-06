@@ -1,81 +1,23 @@
 import os
 import sys
-import traceback
 
-print("Python:", sys.version, flush=True)
-print("CWD:", os.getcwd(), flush=True)
+print("Firebase connection test", flush=True)
+print("=" * 40, flush=True)
 
-cer_path = os.environ.get(
-    "FIREBASE_SERVICE_KEY",
-    os.path.join(os.path.dirname(__file__), "serviceKey.json")
-)
-if not os.path.exists(cer_path):
-    cer_path = os.path.join(os.path.dirname(__file__), "servicaAccountKey.json")
-print("Key path:", cer_path, flush=True)
-print("Key exists:", os.path.exists(cer_path), flush=True)
+from firebaseManager import read_data, write_data, _creds
 
-try:
-    from firebase_admin import credentials, initialize_app, firestore
-    import firebase_admin
-    print("firebase_admin available", flush=True)
-    import firebase_admin
-    print("firebase_admin version:", firebase_admin.__version__, flush=True)
-except ImportError as e:
-    print(f"Import error: {e}", flush=True)
-    sys.exit(1)
+print(f"Credentials loaded: {_creds is not None}", flush=True)
 
-try:
-    import google.auth
-    from google.oauth2 import service_account
-    print("google-auth version:", google.auth.__version__, flush=True)
-except ImportError:
-    pass
+print("Testing Firestore read...", flush=True)
+data = read_data("scuba", 9999)
+print(f"Result: {data}", flush=True)
 
-try:
-    cer = credentials.Certificate(cer_path)
-    print("Certificate loaded successfully", flush=True)
-    print("Service account:", cer.service_account_email, flush=True)
-except Exception as e:
-    print(f"Certificate error: {type(e).__name__}: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
-
-# Try 1: Direct OAuth token request
-try:
-    print("Attempt 1: Direct OAuth token...", flush=True)
-    access_token = cer.get_access_token()
-    token_val = getattr(access_token, 'token', None) or getattr(access_token, 'access_token', None)
-    print(f"OAuth token obtained: {token_val[:20] if token_val else 'None'}...", flush=True)
-except Exception as e:
-    print(f"OAuth token error: {type(e).__name__}: {e}", flush=True)
-    traceback.print_exc()
-
-# Try 2: Firestore client
-try:
-    print("Attempt 2: Firestore client...", flush=True)
-    db = firestore.client()
-    doc_ref = db.collection("boat").document("scuba:9999")
-    print("Calling Firestore get()...", flush=True)
-    doc = doc_ref.get()
-    print("Document exists:", doc.exists, flush=True)
-    if doc.exists:
-        print("Data:", doc.to_dict(), flush=True)
-    else:
-        print("Document not found.", flush=True)
-except Exception as e:
-    print(f"Firestore error: {type(e).__name__}: {e}", flush=True)
-    traceback.print_exc()
-
-# Try 3: Raw HTTP request
-try:
-    print("Attempt 3: Raw HTTP test...", flush=True)
-    import urllib.request
-    import json
-
-    # Try basic connectivity to Google OAuth
-    req = urllib.request.Request("https://oauth2.googleapis.com/token", method="POST")
-    req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    print("HTTPS connection to oauth2.googleapis.com succeeded (request sent)", flush=True)
-except Exception as e:
-    print(f"HTTPS error: {type(e).__name__}: {e}", flush=True)
-    traceback.print_exc()
+if data:
+    print("\nFirebase is working!", flush=True)
+    print(f"  relay: {data.get('relay')}", flush=True)
+    print(f"  motor_a: {data.get('motor_a')}", flush=True)
+    print(f"  motor_b: {data.get('motor_b')}", flush=True)
+    print(f"  drive: {data.get('drive')}", flush=True)
+    print(f"  switch: {data.get('switch')}", flush=True)
+else:
+    print("\nNo data returned. Check key and network.", flush=True)
