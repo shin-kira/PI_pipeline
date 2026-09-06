@@ -5,6 +5,7 @@ import cv2
 import serial
 import threading
 import sys
+import json
 from UARTManager import sendUART, receiveUART
 from firebaseManager import read_data, write_data
 
@@ -67,7 +68,16 @@ def reciveFromEsp():
         payload = receiveUART()
         if payload:
             print(f"data received from esp: {payload}", flush=True)
-            write_data(boat_name, boat_id, {"status": payload})
+            try:
+                data = json.loads(payload)
+                telemetry = {
+                    "weight": float(data.get("weight", 0)),
+                    "long": float(data.get("long", data.get("lon", 0))),
+                    "lat": float(data.get("lat", 0)),
+                }
+                write_data(boat_name, boat_id, telemetry)
+            except (json.JSONDecodeError, ValueError, TypeError) as e:
+                print(f"Parse error: {e}", flush=True)
         time.sleep(0.1)
 
 

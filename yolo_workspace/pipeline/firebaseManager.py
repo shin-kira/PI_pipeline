@@ -103,14 +103,15 @@ def write_data(boat_name, boat_id, payload):
         print("Firebase not initialized or payload not a dict", flush=True)
         return False
     try:
-        payload = dict(payload)
-        payload["timestamp"] = str(int(time.time()))
+        data = dict(payload)
+        data["timestamp"] = str(int(time.time()))
+        doc_id = f"{boat_name}:{boat_id}-telemetry"
         headers = _headers()
         headers["Content-Type"] = "application/json"
-        doc_id = payload["timestamp"]
-        body = {"fields": _serialize_fields(payload)}
-        resp = requests.post(
-            f"{FIRESTORE_BASE}/boat/{boat_name}:{boat_id}/telemetry?documentId={doc_id}",
+        field_paths = "&".join(f"updateMask.fieldPaths={k}" for k in data.keys())
+        body = {"fields": _serialize_fields(data)}
+        resp = requests.patch(
+            f"{FIRESTORE_BASE}/boat/{doc_id}?{field_paths}",
             headers=headers,
             json=body,
             timeout=10,
