@@ -9,6 +9,7 @@ import json
 import re
 from UARTManager import sendUART, receiveUART
 from firebaseManager import read_data, write_data
+from LiveStreamer import start_streaming, push_frame
 
 running = True
 
@@ -22,6 +23,7 @@ example_msg = "{'drive':1,'relay':0,'switch':0,'motor_a':10,'motor_b':10}"
 SERVER_URL = 'https://your-flask-website.com/upload'
 ENABLE_UPLOAD = False
 ENABLE_DISPLAY = True
+ENABLE_STREAM = True
 
 boat_name = "scuba"
 boat_id = 9999
@@ -98,6 +100,10 @@ if ENABLE_UPLOAD:
     threading.Thread(target=upload_worker, daemon=True).start()
     print("Upload thread started", flush=True)
 
+if ENABLE_STREAM:
+    start_streaming(boat_name, boat_id)
+    print("LiveKit stream thread started", flush=True)
+
 threading.Thread(target=sendToEsp, daemon=True).start()
 threading.Thread(target=reciveFromEsp, daemon=True).start()
 print("UART threads started", flush=True)
@@ -112,6 +118,9 @@ try:
 
         results = model(frame, imgsz=320, verbose=False)
         annotated_frame = results[0].plot()
+
+        if ENABLE_STREAM:
+            push_frame(annotated_frame)
 
         if ENABLE_DISPLAY:
             cv2.imshow("YOLOv8 Live Feed", annotated_frame)
