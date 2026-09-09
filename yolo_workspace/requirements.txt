@@ -1,0 +1,6 @@
+livekit
+livekit-api
+opencv-python
+ultralytics
+requests
+PyJWT
