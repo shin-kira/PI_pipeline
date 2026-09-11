@@ -1,164 +1,144 @@
 import os
-import json
 import time
-import requests
 
-cer_path = os.environ.get(
-    "FIREBASE_SERVICE_KEY",
-    os.path.join(os.path.dirname(__file__), "serviceKey.json")
-)
-if not os.path.exists(cer_path):
-    cer_path = os.path.join(os.path.dirname(__file__), "servicaAccountKey.json")
+_db = None
+_initialization_error = None
+_READ_TIMEOUT = 10
+_WRITE_TIMEOUT = 10
 
 
-def _load_credentials():
-    with open(cer_path) as f:
-        return json.load(f)
+def _credential_path():
+    configured = os.environ.get("FIREBASE_SERVICE_KEY")
+    standard = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    directory = os.path.dirname(__file__)
+    candidates = []
+    for value in (configured, standard):
+        if value:
+            candidates.append(os.path.abspath(value))
+    candidates.extend(
+        [
+            os.path.join(directory, "serviceAccountKey.json"),
+            os.path.join(directory, "ServiceAccountKey.JSON"),
+            os.path.join(directory, "AccountServiceKey.json"),
+            os.path.join(directory, "accountServiceKey.json"),
+            os.path.join(directory, "AccountServiceKey.JSON"),
+            os.path.join(directory, "serviceKey.json"),
+            os.path.join(directory, "servicaAccountKey.json"),
+            os.path.join(os.getcwd(), "serviceAccountKey.json"),
+            os.path.join(os.getcwd(), "serviceKey.json"),
+        ]
+    )
 
-
-_creds = None
-try:
-    _creds = _load_credentials()
-    print("Firebase credentials loaded", flush=True)
-except Exception as e:
-    print(f"Firebase init error: {e}", flush=True)
-
-_project_id = _creds.get("project_id") if _creds else None
-_client_email = _creds.get("client_email") if _creds else None
-_private_key = _creds.get("private_key") if _creds else None
-
-SCOPE = "https://www.googleapis.com/auth/datastore"
-TOKEN_URL = "https://oauth2.googleapis.com/token"
-FIRESTORE_BASE = f"https://firestore.googleapis.com/v1/projects/{_project_id}/databases/(default)/documents"
-
-_access_token = None
-_token_expires = 0
-
-
-def _get_access_token():
-    global _access_token, _token_expires
-    now = time.time()
-    if _access_token and now < _token_expires:
-        return _access_token
-
-    if not _private_key or not _client_email:
-        raise RuntimeError("Firebase credentials not loaded")
+    seen = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if os.path.isfile(candidate):
+            return candidate
 
     try:
-        import jwt
-    except ImportError:
-        print("PyJWT not installed. Install with: pip install PyJWT", flush=True)
-        raise
+        for entry in os.scandir(directory):
+            if not entry.is_file() or not entry.name.lower().endswith(".json"):
+                continue
+            try:
+                import json
 
-    now_int = int(now)
-    payload = {
-        "iss": _client_email,
-        "scope": SCOPE,
-        "aud": TOKEN_URL,
-        "iat": now_int,
-        "exp": now_int + 3600,
-    }
-    signed_jwt = jwt.encode(payload, _private_key, algorithm="RS256")
-    if isinstance(signed_jwt, bytes):
-        signed_jwt = signed_jwt.decode("utf-8")
+                with open(entry.path, encoding="utf-8") as key_file:
+                    key_data = json.load(key_file)
+                if all(
+                    key_data.get(field)
+                    for field in ("private_key", "client_email", "project_id")
+                ):
+                    return os.path.abspath(entry.path)
+            except (OSError, ValueError, TypeError):
+                continue
+    except OSError:
+        pass
 
-    resp = requests.post(
-        TOKEN_URL,
-        data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": signed_jwt,
-        },
-        timeout=10,
+    return None
+
+
+try:
+    from firebase_admin import credentials
+    from google.cloud import firestore
+
+    credential_path = _credential_path()
+    if credential_path is None:
+        raise FileNotFoundError(
+            "No Firebase service-account key found. Set FIREBASE_SERVICE_KEY or place "
+            "a service-account JSON file beside firebaseManager.py."
+        )
+
+    certificate = credentials.Certificate(credential_path)
+    _db = firestore.Client(
+        project=certificate.project_id,
+        credentials=certificate.get_credential(),
     )
-    resp.raise_for_status()
-    _access_token = resp.json()["access_token"]
-    _token_expires = now + 3500
-    return _access_token
+    print(f"Firebase initialized from {os.path.basename(credential_path)}", flush=True)
+except Exception as exc:
+    _initialization_error = exc
+    print(f"Firebase init error: {exc}", flush=True)
 
 
-def _headers():
-    return {"Authorization": f"Bearer {_get_access_token()}"}
+def is_initialized():
+    return _db is not None
+
+
+def initialization_error():
+    return _initialization_error
+
+
+def _report_auth_error(exc):
+    message = str(exc)
+    if "Invalid JWT Signature" in message or "invalid_grant" in message:
+        print(
+            "Firebase rejected the service-account key. Download a new JSON key "
+            "from Google Cloud Console and replace the local key file.",
+            flush=True,
+        )
+
+
+def _require_firestore():
+    if _db is None:
+        print("Firebase not initialized", flush=True)
+        if _initialization_error is not None:
+            print(f"Firebase initialization detail: {_initialization_error}", flush=True)
+        return None
+    return _db
 
 
 def read_data(boat_name, boat_id):
-    if not _creds:
-        print("Firebase not initialized", flush=True)
+    db = _require_firestore()
+    if db is None:
         return None
     try:
-        url = f"{FIRESTORE_BASE}/boat/{boat_name}:{boat_id}"
-        resp = requests.get(url, headers=_headers(), timeout=10)
-        if resp.status_code == 404:
+        document = db.collection("boat").document(f"{boat_name}:{boat_id}")
+        snapshot = document.get(timeout=_READ_TIMEOUT, retry=False)
+        if not snapshot.exists:
             print("[Firebase] Document not found", flush=True)
             return None
-        resp.raise_for_status()
-        fields = resp.json().get("fields", {})
-        return _parse_fields(fields)
-    except Exception as e:
-        print(f"Firebase read error: {e}", flush=True)
+        return snapshot.to_dict() or {}
+    except Exception as exc:
+        print(f"Firebase read error: {exc}", flush=True)
+        _report_auth_error(exc)
         return None
 
 
 def write_data(boat_name, boat_id, payload):
-    if not _creds or not isinstance(payload, dict):
-        print("Firebase not initialized or payload not a dict", flush=True)
+    if not isinstance(payload, dict):
+        print("Firebase payload must be a dict", flush=True)
+        return False
+    db = _require_firestore()
+    if db is None:
         return False
     try:
         data = dict(payload)
         data["timestamp"] = str(int(time.time()))
-        doc_id = f"{boat_name}:{boat_id}-telemetry"
-        headers = _headers()
-        headers["Content-Type"] = "application/json"
-        field_paths = "&".join(f"updateMask.fieldPaths={k}" for k in data.keys())
-        body = {"fields": _serialize_fields(data)}
-        resp = requests.patch(
-            f"{FIRESTORE_BASE}/boat/{doc_id}?{field_paths}",
-            headers=headers,
-            json=body,
-            timeout=10,
-        )
-        resp.raise_for_status()
+        document = db.collection("boat").document(f"{boat_name}:{boat_id}-telemetry")
+        document.set(data, merge=True, timeout=_WRITE_TIMEOUT, retry=False)
         return True
-    except Exception as e:
-        print(f"Firebase write error: {e}", flush=True)
+    except Exception as exc:
+        print(f"Firebase write error: {exc}", flush=True)
+        _report_auth_error(exc)
         return False
-
-
-def _parse_fields(fields):
-    result = {}
-    for key, val in fields.items():
-        if "stringValue" in val:
-            result[key] = val["stringValue"]
-        elif "integerValue" in val:
-            result[key] = int(val["integerValue"])
-        elif "doubleValue" in val:
-            result[key] = float(val["doubleValue"])
-        elif "booleanValue" in val:
-            result[key] = bool(val["booleanValue"])
-        elif "arrayValue" in val:
-            result[key] = val["arrayValue"]
-        elif "mapValue" in val:
-            result[key] = _parse_fields(val["mapValue"].get("fields", {}))
-    return result
-
-
-def _value_to_fv(val):
-    if isinstance(val, bool):
-        return {"booleanValue": val}
-    elif isinstance(val, int):
-        return {"integerValue": val}
-    elif isinstance(val, float):
-        return {"doubleValue": val}
-    elif isinstance(val, str):
-        return {"stringValue": val}
-    elif isinstance(val, dict):
-        return {"mapValue": {"fields": _serialize_fields(val)}}
-    elif isinstance(val, list):
-        return {"arrayValue": {"values": [_value_to_fv(v) for v in val]}}
-    return {"nullValue": None}
-
-
-def _serialize_fields(data):
-    result = {}
-    for key, val in data.items():
-        result[key] = _value_to_fv(val)
-    return result

@@ -3,4 +3,5 @@ livekit-api
 opencv-python
 ultralytics
 requests
+firebase-admin
 PyJWT

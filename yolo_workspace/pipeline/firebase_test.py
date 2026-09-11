@@ -4,9 +4,16 @@ import sys
 print("Firebase connection test", flush=True)
 print("=" * 40, flush=True)
 
-from firebaseManager import read_data, write_data, _creds
+from firebaseManager import (
+    initialization_error,
+    is_initialized,
+    read_data,
+    write_data,
+)
 
-print(f"Credentials loaded: {_creds is not None}", flush=True)
+print(f"Firebase initialized: {is_initialized()}", flush=True)
+if not is_initialized():
+    print(f"Initialization error: {initialization_error()}", flush=True)
 
 print("Testing Firestore read...", flush=True)
 data = read_data("scuba", 9999)
@@ -20,4 +27,4 @@ if data:
     print(f"  drive: {data.get('drive')}", flush=True)
     print(f"  switch: {data.get('switch')}", flush=True)
 else:
-    print("\nNo data returned. Check key and network.", flush=True)
+    print("\nNo data returned. Check the key, network, and Firestore document.", flush=True)

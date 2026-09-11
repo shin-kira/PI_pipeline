@@ -2,6 +2,10 @@
 __pycache__/
 *.pyc
 serviceKey.json
+serviceAccountKey.json
+ServiceAccountKey.JSON
+AccountServiceKey.json
+accountServiceKey.json
 servicaAccountKey.json
 *.pt
 *.ncnn_model/
