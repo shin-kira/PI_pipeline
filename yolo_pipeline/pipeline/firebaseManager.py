@@ -113,11 +113,6 @@ def _execute_with_retry(operation, operation_name):
             if attempt >= _MAX_RETRIES:
                 break
             delay = _RETRY_BACKOFF * (2 ** (attempt - 1))
-            print(
-                f"Firebase {operation_name} failed (attempt {attempt}/"
-                f"{_MAX_RETRIES}), retrying in {delay}s: {exc}",
-                flush=True,
-            )
             time.sleep(delay)
     return None
 
