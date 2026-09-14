@@ -57,13 +57,19 @@ def upload_worker():
 
 
 def sendToEsp():
+    interval = 0.03
+    next_read = time.monotonic()
     while running:
         data = read_data(boat_name, boat_id)
         print(f"[Firebase] Received: {data}", flush=True)
         if data:
             esp_message = str(data)
             sendUART(esp_message)
-        time.sleep(0.1)
+        next_read += interval
+        now = time.monotonic()
+        if next_read < now - interval:
+            next_read = now
+        time.sleep(max(0, next_read - now))
 
 
 _esp_buffer = {"weight": None, "long": None, "lat": None}
@@ -71,6 +77,8 @@ _esp_buffer = {"weight": None, "long": None, "lat": None}
 
 def reciveFromEsp():
     global _esp_buffer
+    interval = 0.03
+    next_read = time.monotonic()
     while running:
         payload = receiveUART()
         if payload:
@@ -92,7 +100,11 @@ def reciveFromEsp():
                 telemetry = dict(_esp_buffer)
                 _esp_buffer = {"weight": None, "long": None, "lat": None}
                 write_data(boat_name, boat_id, telemetry)
-        time.sleep(0.1)
+        next_read += interval
+        now = time.monotonic()
+        if next_read < now - interval:
+            next_read = now
+        time.sleep(max(0, next_read - now))
 
 
 
