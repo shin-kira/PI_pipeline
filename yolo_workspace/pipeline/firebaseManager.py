@@ -2,11 +2,15 @@ import os
 import json
 import time
 import requests
+import threading
 
-_READ_TIMEOUT = 10
-_WRITE_TIMEOUT = 10
+_READ_TIMEOUT = 5
+_WRITE_TIMEOUT = 5
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 0.2
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+_token_lock = threading.Lock()
 
 
 def _find_credential_path():
@@ -113,54 +117,74 @@ def credential_path():
     return _credential_file
 
 
+def _execute_with_retry(operation, operation_name):
+    last_error = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            last_error = exc
+            if attempt >= _MAX_RETRIES:
+                break
+            delay = _RETRY_BACKOFF * (2 ** (attempt - 1))
+            print(
+                f"Firebase {operation_name} failed (attempt {attempt}/"
+                f"{_MAX_RETRIES}), retrying in {delay}s: {exc}",
+                flush=True,
+            )
+            time.sleep(delay)
+    return None
+
+
 def _get_access_token():
     global _access_token, _token_expires
-    now = time.time()
-    if _access_token and now < _token_expires:
-        return _access_token
-    if not _creds:
-        raise RuntimeError("Firebase credentials not loaded")
+    with _token_lock:
+        now = time.time()
+        if _access_token and now < _token_expires:
+            return _access_token
+        if not _creds:
+            raise RuntimeError("Firebase credentials not loaded")
 
-    try:
-        import jwt
-    except ImportError as exc:
-        raise RuntimeError(
-            "PyJWT is required for Firebase authentication. Install it with: "
-            "python3 -m pip install PyJWT"
-        ) from exc
+        try:
+            import jwt
+        except ImportError as exc:
+            raise RuntimeError(
+                "PyJWT is required for Firebase authentication. Install it with: "
+                "python3 -m pip install PyJWT"
+            ) from exc
 
-    now_int = int(now)
-    payload = {
-        "iss": _creds["client_email"],
-        "scope": _SCOPE,
-        "aud": _creds.get("token_uri", _TOKEN_URL),
-        "iat": now_int,
-        "exp": now_int + 3600,
-    }
-    signed_jwt = jwt.encode(
-        payload,
-        _creds["private_key"],
-        algorithm="RS256",
-    )
-    if isinstance(signed_jwt, bytes):
-        signed_jwt = signed_jwt.decode("utf-8")
-
-    response = requests.post(
-        _creds.get("token_uri", _TOKEN_URL),
-        data={
-            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-            "assertion": signed_jwt,
-        },
-        timeout=10,
-    )
-    if not response.ok:
-        raise RuntimeError(
-            f"Firebase token request failed: {response.status_code} {response.text[:500]}"
+        now_int = int(now)
+        payload = {
+            "iss": _creds["client_email"],
+            "scope": _SCOPE,
+            "aud": _creds.get("token_uri", _TOKEN_URL),
+            "iat": now_int,
+            "exp": now_int + 3600,
+        }
+        signed_jwt = jwt.encode(
+            payload,
+            _creds["private_key"],
+            algorithm="RS256",
         )
-    token_data = response.json()
-    _access_token = token_data["access_token"]
-    _token_expires = now + 3500
-    return _access_token
+        if isinstance(signed_jwt, bytes):
+            signed_jwt = signed_jwt.decode("utf-8")
+
+        response = requests.post(
+            _creds.get("token_uri", _TOKEN_URL),
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": signed_jwt,
+            },
+            timeout=5,
+        )
+        if not response.ok:
+            raise RuntimeError(
+                f"Firebase token request failed: {response.status_code} {response.text[:500]}"
+            )
+        token_data = response.json()
+        _access_token = token_data["access_token"]
+        _token_expires = now + 3500
+        return _access_token
 
 
 def _headers():
@@ -217,11 +241,16 @@ def read_data(boat_name, boat_id):
             f"{_creds['project_id']}/databases/(default)/documents/"
             f"boat/{boat_name}:{boat_id}"
         )
-        response = requests.get(
-            url,
-            headers=_headers(),
-            timeout=_READ_TIMEOUT,
+        response = _execute_with_retry(
+            lambda: requests.get(
+                url,
+                headers=_headers(),
+                timeout=_READ_TIMEOUT,
+            ),
+            "read",
         )
+        if response is None:
+            return None
         if response.status_code == 404:
             print("[Firebase] Document not found", flush=True)
             return None
@@ -258,16 +287,21 @@ def write_data(boat_name, boat_id, payload):
             f"{_creds['project_id']}/databases/(default)/documents/"
             f"boat/{boat_name}:{boat_id}-telemetry"
         )
-        response = requests.patch(
-            url,
-            headers={
-                **_headers(),
-                "Content-Type": "application/json",
-            },
-            params=[("updateMask.fieldPaths", key) for key in data],
-            json={"fields": _serialize_fields(data)},
-            timeout=_WRITE_TIMEOUT,
+        response = _execute_with_retry(
+            lambda: requests.patch(
+                url,
+                headers={
+                    **_headers(),
+                    "Content-Type": "application/json",
+                },
+                params=[("updateMask.fieldPaths", key) for key in data],
+                json={"fields": _serialize_fields(data)},
+                timeout=_WRITE_TIMEOUT,
+            ),
+            "write",
         )
+        if response is None:
+            return False
         if not response.ok:
             raise RuntimeError(
                 f"Firebase write failed: {response.status_code} {response.text[:500]}"

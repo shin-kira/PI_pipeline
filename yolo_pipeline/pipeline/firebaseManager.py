@@ -1,10 +1,14 @@
 import os
 import time
+import threading
 
 _db = None
 _initialization_error = None
-_READ_TIMEOUT = 10
-_WRITE_TIMEOUT = 10
+_READ_TIMEOUT = 5
+_WRITE_TIMEOUT = 5
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 0.2
+_db_lock = threading.Lock()
 
 
 def _credential_path():
@@ -99,6 +103,25 @@ def _report_auth_error(exc):
         )
 
 
+def _execute_with_retry(operation, operation_name):
+    last_error = None
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            last_error = exc
+            if attempt >= _MAX_RETRIES:
+                break
+            delay = _RETRY_BACKOFF * (2 ** (attempt - 1))
+            print(
+                f"Firebase {operation_name} failed (attempt {attempt}/"
+                f"{_MAX_RETRIES}), retrying in {delay}s: {exc}",
+                flush=True,
+            )
+            time.sleep(delay)
+    return None
+
+
 def _require_firestore():
     if _db is None:
         print("Firebase not initialized", flush=True)
@@ -109,36 +132,41 @@ def _require_firestore():
 
 
 def read_data(boat_name, boat_id):
-    db = _require_firestore()
-    if db is None:
-        return None
-    try:
+    with _db_lock:
+        db = _require_firestore()
+        if db is None:
+            return None
         document = db.collection("boat").document(f"{boat_name}:{boat_id}")
-        snapshot = document.get(timeout=_READ_TIMEOUT, retry=False)
-        if not snapshot.exists:
+        result = _execute_with_retry(
+            lambda: document.get(timeout=_READ_TIMEOUT, retry=False),
+            "read",
+        )
+        if result is None:
+            return None
+        if not result.exists:
             print("[Firebase] Document not found", flush=True)
             return None
-        return snapshot.to_dict() or {}
-    except Exception as exc:
-        print(f"Firebase read error: {exc}", flush=True)
-        _report_auth_error(exc)
-        return None
+        return result.to_dict() or {}
 
 
 def write_data(boat_name, boat_id, payload):
     if not isinstance(payload, dict):
         print("Firebase payload must be a dict", flush=True)
         return False
-    db = _require_firestore()
-    if db is None:
-        return False
-    try:
+    with _db_lock:
+        db = _require_firestore()
+        if db is None:
+            return False
         data = dict(payload)
         data["timestamp"] = str(int(time.time()))
         document = db.collection("boat").document(f"{boat_name}:{boat_id}-telemetry")
-        document.set(data, merge=True, timeout=_WRITE_TIMEOUT, retry=False)
-        return True
-    except Exception as exc:
-        print(f"Firebase write error: {exc}", flush=True)
-        _report_auth_error(exc)
-        return False
+        try:
+            result = _execute_with_retry(
+                lambda: document.set(data, merge=True, timeout=_WRITE_TIMEOUT, retry=False),
+                "write",
+            )
+            return result is not None
+        except Exception as exc:
+            print(f"Firebase write error: {exc}", flush=True)
+            _report_auth_error(exc)
+            return False
